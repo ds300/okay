@@ -1,13 +1,13 @@
 # okay
 
-A Clojure library designed to ... well, that part is up to you.
+okay is a library for data validation and/or transformation. It features an elegant declarative syntax married with a rich, extensible type system.
 
-## Usage
-
-FIXME
+Included are ring middleware for handling request params.
 
 ## License
 
-Copyright © 2013 FIXME
+Copyright © 2013 David Sheldrick
 
 Distributed under the Eclipse Public License, the same as Clojure.
+
+| (• ◡•)| (❍ᴥ❍ʋ)
