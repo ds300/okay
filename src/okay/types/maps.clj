@@ -76,55 +76,62 @@
       (reduce reverse-apply value parsers))))
 
 
-(defn make-map-field-validators [structure]
-  (for [key-path (get-topological-sort structure)]
-    (let [field-type (get-in structure key-path)
-          field-properties (:properties field-type)
-          cohort-fields (:validate-with-fields field-properties)
-          cohort-fn (:validate-with-fn field-properties)
-          required? (:required field-properties)
-          validator (if (empty? cohort-fields) 
-                      (fn [map-value field-value]
-                        (validate field-type field-value))
-                      (fn [map-value field-value]
-                        (and
-                          (validate field-type field-value)
-                          (apply cohort-fn
-                            (map (partial get-in map-value) cohort-fields)))))]
-      (fn [value]
-        (try
-          (or
-            (loop [m value [k & ks] key-path]
-              (if (and (map? m) (contains? m k))
-                (if ks
-                  (recur (m k) ks)
-                  (validator value (m k)))
-                (not required?)))
-            (throw-validation-error key-path (get-in value key-path)))
-          (catch Exception e
-            (throw-validation-error key-path (get-in value key-path) e)))))))
-
-
-(defn make-map-validator [structure]
-  (let [validators (make-map-field-validators structure)]
+(defn wrap-field-validator:cohort [validator fields f]
+  (if (empty? fields)
+    validator
     (fn [value]
-      (loop [[v & more] validators]
-        (if v
-          (if (v value)
-            (recur more)
-            false)
-          true)))))
+      (and (validator value)
+        (apply f
+          (map (partial get-in map-value) cohort-fields))))))
 
-
-
-(defn wrap-map-validator:no-other-fields [validator key-paths]
+(defn wrap-field-validator:exceptions [validator key-path]
   (fn [value]
-    (if (validator value)
-      (let [reduced (reduce dissoc-in value key-paths)]
-        (if (empty? reduced)
-          true
-          (throw (Exception. (str "Unauthorized fields in map: "(all-key-paths reduced))))))
-      false)))
+    (try
+      (or
+        (validator value)
+        (error/validation-fail! key-path (get-in value key-path)))
+      (catch Exception e
+        (error/validation-fail! key-path (get-in value key-path) e)))))
+
+(defn wrap-field-validator:get-in [validator key-path required?]
+  (fn [value]
+    (loop [m value [k & ks] key-path]
+      (if (and (map? m) (contains? m k))
+        (if ks
+          (recur (m k) ks)
+          (validator value (m k)))
+        (not required?)))))
+
+(defn make-field-validator [key-path {props :properties :as field-type}]
+  (let [cohort-fields (:validate-with-fields props)
+        cohort-fn (:validate-with-fn props)
+        required? (:required props)]
+    (-> (partial proto/parse field-type)
+      (wrap-field-validator:get-in key-path required?)
+      (wrap-field-validator:cohort cohort-fields cohort-fn)
+      (wrap-field-validator:exceptions key-path))))
+
+(defn make-field-validators [structure]
+  (for [key-path (get-topological-sort structure)
+        :let [field-type (get-in structure key-path)]]
+    (make-field-validator key-path field-type)))
+
+(defn wrap-validator:no-other-fields [validator structure properties]
+  (if (and (contains? properties :allow-other-fields)
+        (not (:allow-other-fields properties))
+    (let [key-paths (all-key-paths structure)]
+      (fn [value]
+        (and (validator value)
+          (let [reduced (reduce dissoc-in value key-paths)]
+            (or (empty? reduced)
+              (error/fail!
+                "Unauthorized fields in map: " (all-key-paths reduced)))))))
+    validator)))
+
+(defn make-validator [structure properties]
+  (-> (every-pred (make-field-validators structure))
+    (wrap-validator:no-other-fields structure properties)))
+
 
 (defn make-map-default-getter [structure]
   (let [key-paths (all-key-paths structure)]
