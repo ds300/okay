@@ -2,8 +2,6 @@
   (:require [okay.types.error :as error]
             [okay.types.proto :as proto]))
 
-
-
 (defn all-key-paths
   "Finds all the key paths in a possibly-nested maptype structure"
   [structure]
@@ -58,7 +56,7 @@
 
 (defn make-field-parsers
   "Takes a maptype structure and returns a list of fns which take a map value
-  and modify it's contents according to the structure's field specifications"
+  and modify its contents according to the structure's field specifications"
   [structure]
   (for [key-path (all-key-paths structure)]
     (let [field-type (get-in structure key-path)]
@@ -69,11 +67,11 @@
   [value f]
   (f value))
 
-(defn make-map-parser
-  "Returns a fn which takes a map and update's its values according to the
+(defn make-parser
+  "Returns a fn which takes a map and updates its values according to the
   given maptype structure."
   [structure]
-  (let [parsers (make-map-field-parsers structure)]
+  (let [parsers (make-field-parsers structure)]
     (fn [value]
       (reduce reverse-apply value parsers))))
 
