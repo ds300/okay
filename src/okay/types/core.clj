@@ -1,13 +1,6 @@
 (ns okay.types.core)
 
-(defn validator-wrapper [validator]
-  (fn [value]
-    (try
-      (validator value)  
-      (catch Exception e
-        (if *emit-validation-errors*
-          (throw e)
-          false)))))
+
 
 (declare seqtype)
 

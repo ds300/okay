@@ -1,19 +1,30 @@
-(ns okay.types.error)
+(ns okay.types.error
+  (:import okay.NotOkayException))
 
 (def ^:dynamic *emit-validation-errors* false)
 
-(defn throw-error [msg] (throw (CFGException. msg nil nil nil)))
+(defn validator-wrapper [validator]
+  (fn [value]
+    (try
+      (validator value)  
+      (catch Exception e
+        (if *emit-validation-errors*
+          (throw e)
+          false)))))
 
-(defn throw-parse-error 
-  ([key-path bad-value]
-    (throw-parse-error key-path bad-value nil))
-  ([key-path bad-value original-exception]
-    (throw
-      (CFGException. "Parsing failed." key-path bad-value original-exception))))
+(defmacro not-ok! [msg key-path bad-value original-exception]
+  `(throw (NotOkayException. ~msg ~key-path ~bad-value ~original-exception)))
 
-(defn throw-validation-error
+(defmacro fail! [& args] `(not-ok! (str ~@args) nil nil nil))
+
+(defmacro parse-fail! 
   ([key-path bad-value]
-    (throw-validation-error key-path bad-value nil))
+    `(parse-fail! ~key-path ~bad-value nil))
   ([key-path bad-value original-exception]
-    (throw
-      (CFGException. "Validation failed." key-path bad-value original-exception))))
+    `(not-ok! "Parsing failed." ~key-path ~bad-value ~original-exception)))
+
+(defmacro validation-fail!
+  ([key-path bad-value]
+    `(validation-fail! ~key-path ~bad-value nil))
+  ([key-path bad-value original-exception]
+    `(not-ok! "Validation failed." ~key-path ~bad-value ~original-exception)))

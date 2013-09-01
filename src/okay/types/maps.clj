@@ -1,33 +1,81 @@
-(ns okay.types.maps)
+(ns okay.types.maps
+  (:require [okay.types.error :as error]
+            [okay.types.proto :as proto]))
 
 
-(defn make-map-field-parsers [structure]
-  (for [key-path (all-key-paths structure)]
-    (let [field-type (get-in structure key-path)
-          parser (partial parse field-type)
-          f (fn f [[k & ks] m]
-              (if k ;; probably unneccesary. do a check dave
-                (if (and (map? m) (contains? m k))
-                  (if ks
-                    (assoc m k (f ks (m k)))
-                    (assoc m k (parser (m k))))
-                  m)
-                m))]
-      (fn [m]
-        (try
-          (f key-path m)
+
+(defn all-key-paths
+  "Finds all the key paths in a possibly-nested maptype structure"
+  [structure]
+  (apply concat
+    (for [[k v] structure]
+      (if (and (not (satisfies? TypeProtocol v)) (map? v))
+        (map #(into [k] %) (all-key-paths v))
+        [[k]]))))
+
+(defn make-graph
+  "Extracts a (nodes => incoming-edges) map from a maptype structure, for use
+   with Alan Dipert's topological sort."
+  [structure]
+  (into {}
+    (for [ks (all-key-paths structure)]
+      (let [withs (get-in structure
+                    (into ks [:properties :validate-with-fields]))]
+      (if (empty? withs)
+        [ks #{}]
+        [ks (into #{} withs)])))))
+
+(defn get-topological-sort
+  "Retrieves a topological sort for the given maptype structure, or throws
+  a NotOkayException if a cyclical dependency is detected."
+  [structure]
+  (let [graph (make-graph structure)
+        sorted (kahn-sort graph)]
+    (if sorted
+      (reverse sorted)
+      (error/fail! "Cyclical dependency detected"))))
+
+(defn update-in-when-not-nil
+  "Like update-in, but does not modify the map's structure if the key path
+  is not present."
+  [m [k & ks] f]
+  (if (and (map? m) (contains? m k))
+    (if ks
+      (assoc m k (update-in-when-not-nil ks (m k)))
+      (assoc m k (f (m k))))
+    m))
+
+(defn make-field-parser
+  "Returns a fn which updates a map to apply the field-type's parse method to
+  the value at key-path, if the value exists."
+  [key-path field-type]
+  (let [parser (partial proto/parse field-type)]
+    (fn [value]
+      (try
+        (update-in-when-not-nil value key-path parser)
         (catch Exception e
-          (throw-parse-error key-path (get-in m key-path) e)))))))
+          (error/parse-fail! key-path (get-in value key-path) e))))))
 
+(defn make-field-parsers
+  "Takes a maptype structure and returns a list of fns which take a map value
+  and modify it's contents according to the structure's field specifications"
+  [structure]
+  (for [key-path (all-key-paths structure)]
+    (let [field-type (get-in structure key-path)]
+      (make-field-parser key-path field-type))))
 
-(defn make-map-parser [structure]
+(defn reverse-apply
+  "calls f on value"
+  [value f]
+  (f value))
+
+(defn make-map-parser
+  "Returns a fn which takes a map and update's its values according to the
+  given maptype structure."
+  [structure]
   (let [parsers (make-map-field-parsers structure)]
     (fn [value]
-      (reduce 
-        (fn [acc f]
-          (f acc))
-        value
-        parsers))))
+      (reduce reverse-apply value parsers))))
 
 
 (defn make-map-field-validators [structure]
@@ -69,12 +117,7 @@
             false)
           true)))))
 
-(defn all-key-paths [m]
-  (apply concat
-    (for [[k v] m]
-      (if (and (not (satisfies? TypeProtocol v)) (map? v))
-        (map #(into [k] %) (all-key-paths v))
-        [[k]]))))
+
 
 (defn wrap-map-validator:no-other-fields [validator key-paths]
   (fn [value]
@@ -84,23 +127,6 @@
           true
           (throw (Exception. (str "Unauthorized fields in map: "(all-key-paths reduced))))))
       false)))
-
-
-(defn make-graph [structure]
-  (into {}
-    (for [ks (all-key-paths structure)]
-      (let [withs (get-in structure
-                    (into ks [:properties :validate-with-fields]))]
-      (if (empty? withs)
-        [ks #{}]
-        [ks (into #{} withs)])))))
-
-(defn get-topological-sort [structure]
-  (let [graph (make-graph structure)
-        sorted (kahn-sort graph)]
-    (if sorted
-      (reverse sorted)
-      (throw (Exception. "Cyclical dependency detected")))))
 
 (defn make-map-default-getter [structure]
   (let [key-paths (all-key-paths structure)]
