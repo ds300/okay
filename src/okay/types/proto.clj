@@ -1,4 +1,5 @@
-(ns okay.types.proto)
+(ns okay.types.proto
+  (:import clojure.lang.IFn))
 
 (defprotocol TypeProtocol
   (validate [me value])
@@ -11,5 +12,3 @@
 
 (defn abstract-type-property [m]
   (merge (->AbstractTypeProperty) m))
-
-  

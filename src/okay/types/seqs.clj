@@ -1,4 +1,5 @@
-(ns okay.types.seqs)
+(ns okay.types.seqs
+  (:require [okay.types.properties :as properties]))
 
 (defrecord SeqType [properties-list properties parser validator default-getter]
   TypeProtocol

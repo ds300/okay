@@ -1,13 +1,15 @@
 (ns okay.types.maps
   (:require [okay.types.error :as error]
-            [okay.types.proto :as proto]))
+            [okay.types.proto :as proto]
+            [okay.types.props :as props]
+            [aladipert.kahn :refer [kahn-sort]]))
 
 (defn all-key-paths
   "Finds all the key paths in a possibly-nested maptype structure"
   [structure]
   (apply concat
     (for [[k v] structure]
-      (if (and (not (satisfies? TypeProtocol v)) (map? v))
+      (if (and (not (satisfies? proto/TypeProtocol v)) (map? v))
         (map #(into [k] %) (all-key-paths v))
         [[k]]))))
 
@@ -118,7 +120,7 @@
   (let [cohort-fields (:validate-with-fields props)
         cohort-fn (:validate-with-fn props)
         required? (:required props)]
-    (-> (partial proto/parse field-type)
+    (-> (partial proto/validate field-type)
       (wrap-field-validator:get-in key-path required?)
       (wrap-field-validator:cohort cohort-fields cohort-fn)
       (wrap-field-validator:exceptions key-path))))
@@ -151,10 +153,13 @@
   [structure properties]
   (-> (every-pred (make-field-validators structure))
     (wrap-validator:no-other-fields structure properties)
-    error/wrap-validator))
+    error/validator-wrapper))
 
 
-(defn make-map-default-getter [structure]
+(defn make-map-default-getter
+  "returns a function which gets the default values for the fields as specified
+  in the maptype structure."
+  [structure]
   (let [key-paths (all-key-paths structure)]
     (fn []
       (reduce (partial apply assoc-in) {}
@@ -171,22 +176,22 @@
     (cond
       (instance? MapType other)
         (->MapType (apply map-merge (map :properties [me other])) nil nil nil)
-      (instance? AbstractTypeProperty other)
+      (instance? proto/AbstractTypeProperty other)
         (->MapType (merge (:properties me) other) nil nil nil)
       :else
-        (throw (Exception.
-                 (str "Map types are only composable with other map types")))))
+        (error/fail! "Map types are only composable with other map types")))
 
   (finalize [me] ;; you were here
+    (props/validate properties)
     (if-let [structure (:structure properties)]
       (let [parser (make-map-parser structure)
-            validator (make-map-validator structure properties)
+            validator (make-validator structure properties)
             default-getter (util/make-default-getter properties
                              (make-map-default-getter structure))]
         (->MapType
           properties
           parser
-          (validator-wrapper validator)
+          validator
           default-getter))
 
       (->MapType

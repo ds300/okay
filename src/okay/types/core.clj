@@ -10,6 +10,7 @@
       (cond
         (satisfies? TypeProtocol m)
           m
+          ;; allow abstract type properties
         (map? m)
           (abstract-type-property {:add-parser m})
         (vector? m)
