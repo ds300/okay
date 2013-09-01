@@ -76,15 +76,22 @@
       (reduce reverse-apply value parsers))))
 
 
-(defn wrap-field-validator:cohort [validator fields f]
+(defn wrap-field-validator:cohort
+  "If a field validator requries validation with other map fields, this
+  funciton wraps it in one which does so."
+  [validator fields f]
   (if (empty? fields)
     validator
     (fn [value]
       (and (validator value)
         (apply f
-          (map (partial get-in map-value) cohort-fields))))))
+          (map (partial get-in value) fields))))))
 
-(defn wrap-field-validator:exceptions [validator key-path]
+(defn wrap-field-validator:exceptions
+  "Wraps a field validator such that it throws an exception in stead of returns
+  false. For fine-grained error reporting. (i.e. you know which key threw the
+  exception)"
+  [validator key-path]
   (fn [value]
     (try
       (or
@@ -93,7 +100,10 @@
       (catch Exception e
         (error/validation-fail! key-path (get-in value key-path) e)))))
 
-(defn wrap-field-validator:get-in [validator key-path required?]
+(defn wrap-field-validator:get-in
+  "wraps the given field validator in a fn that searches for the right
+  value to validate."
+  [validator key-path required?]
   (fn [value]
     (loop [m value [k & ks] key-path]
       (if (and (map? m) (contains? m k))
@@ -102,7 +112,9 @@
           (validator value (m k)))
         (not required?)))))
 
-(defn make-field-validator [key-path {props :properties :as field-type}]
+(defn make-field-validator
+  "makes a feild validator for the given key-path and field type."
+  [key-path {props :properties :as field-type}]
   (let [cohort-fields (:validate-with-fields props)
         cohort-fn (:validate-with-fn props)
         required? (:required props)]
@@ -111,12 +123,18 @@
       (wrap-field-validator:cohort cohort-fields cohort-fn)
       (wrap-field-validator:exceptions key-path))))
 
-(defn make-field-validators [structure]
+(defn make-field-validators
+  "returns a list of fns which each take a map, and validate a key path
+  in that map, according to the maptype structure definition."
+  [structure]
   (for [key-path (get-topological-sort structure)
         :let [field-type (get-in structure key-path)]]
     (make-field-validator key-path field-type)))
 
-(defn wrap-validator:no-other-fields [validator structure properties]
+(defn wrap-validator:no-other-fields
+  "if a maptype disallows unspecified fields, wraps validator in a fn
+  which checks also whether any extraneous fields have been set."
+  [validator structure properties]
   (if (and (contains? properties :allow-other-fields)
         (not (:allow-other-fields properties))
     (let [key-paths (all-key-paths structure)]
@@ -128,9 +146,12 @@
                 "Unauthorized fields in map: " (all-key-paths reduced)))))))
     validator)))
 
-(defn make-validator [structure properties]
+(defn make-validator
+  "makes the whole-map validator function."
+  [structure properties]
   (-> (every-pred (make-field-validators structure))
-    (wrap-validator:no-other-fields structure properties)))
+    (wrap-validator:no-other-fields structure properties)
+    error/wrap-validator))
 
 
 (defn make-map-default-getter [structure]
@@ -156,16 +177,11 @@
         (throw (Exception.
                  (str "Map types are only composable with other map types")))))
 
-  (finalize [me]
+  (finalize [me] ;; you were here
     (if-let [structure (:structure properties)]
       (let [parser (make-map-parser structure)
-            validator (make-map-validator structure)
-            validator (if (and (contains? properties :allow-other-fields)
-                               (not (:allow-other-fields properties)))
-                        (wrap-map-validator:no-other-fields validator
-                          (all-key-paths structure))
-                        validator)
-            default-getter (make-default-getter properties
+            validator (make-map-validator structure properties)
+            default-getter (util/make-default-getter properties
                              (make-map-default-getter structure))]
         (->MapType
           properties
