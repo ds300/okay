@@ -1,8 +1,8 @@
 # okay
 
-okay is a library for data validation and/or transformation. It features an elegant declarative syntax married with a rich, extensible type system.
+*okay* was intended to be a library for declarative data validation and/or transformation. 
 
-Included are ring middleware for handling request params.
+Alas, [Schema](http://github.com/Prismatic/Schema) came along before it was finished, doing the validation bit so nicely that it seemed silly to continue.
 
 ## License
 
